@@ -1,159 +1,121 @@
-# Turborepo starter
+# Fluvi: Água e Peso
 
-This Turborepo starter is maintained by the Turborepo core team.
+App mobile para acompanhar o consumo de água e o peso no dia a dia, com metas, histórico e gráficos.
 
-## Using this example
+O Fluvi nasce com uma proposta simples: registrar um copo de água tem que levar um toque, funcionar sem internet e ser agradável de usar. Em vez de competir em quantidade de funções, ele aposta numa experiência leve, num visual cuidado e em pouquíssima interrupção.
 
-Run the following command:
+## Funcionalidades
 
-```sh
-npx create-turbo@latest
+- Meta diária de água, calculada no onboarding e ajustável a qualquer momento.
+- Registro rápido do consumo com atalhos de tamanho de copo.
+- Registro de peso e acompanhamento da evolução.
+- Gráficos de consumo e de peso ao longo do tempo.
+- Funciona totalmente offline, com sincronização quando houver conexão.
+
+### Próximos passos
+
+- Lembretes configuráveis (quantidade por dia ou intervalo), sem bloquear o registro.
+- Versão web integrada ao app.
+- Widgets para Android.
+- Versão para iOS.
+
+O lançamento inicial é só para Android, pela Play Store. O MVP sai sem os lembretes.
+
+## Como o app funciona
+
+O Fluvi é **local-first**: todos os dados ficam num banco SQLite no aparelho, e a interface lê e grava direto nele. Uma API em NestJS recebe os dados por sincronização em segundo plano, o que permite usar o app sem internet e, no futuro, acessar os mesmos dados na versão web.
+
+Os detalhes de arquitetura, organização de pastas e convenções estão no [`PATTERNS.md`](./PATTERNS.md).
+
+## Stack
+
+- [Expo](https://expo.dev) (SDK 58) com Expo Router e development build
+- TypeScript (strict)
+- NativeWind v4 (Tailwind CSS 3)
+- expo-sqlite + Drizzle ORM
+- Zustand + MMKV
+- axios + TanStack Query (features online)
+- Zod
+- Biome e Bun
+
+## Pré-requisitos
+
+- [Bun](https://bun.sh)
+- Android Studio com Android SDK e um emulador configurado, ou um aparelho Android com depuração USB ativada
+- JDK 17
+
+O projeto usa **development build** (`expo-dev-client`) e **não roda no Expo Go**, porque depende de módulos nativos (MMKV, anúncios, SQLite com listener de mudanças).
+
+## Rodando o projeto
+
+1. Instale as dependências:
+
+   ```bash
+   bun install
+   ```
+
+2. Crie o arquivo de ambiente a partir do exemplo e ajuste a URL da API:
+
+   ```bash
+   cp .env.example .env
+   ```
+
+   | Variável | Descrição |
+   |---|---|
+   | `EXPO_PUBLIC_API_URL` | URL base da API do Fluvi |
+
+3. Gere e instale o development build no emulador ou no aparelho conectado:
+
+   ```bash
+   bunx expo run:android
+   ```
+
+   Esse passo compila o app nativo e só precisa ser repetido quando uma dependência nativa for adicionada ou a configuração nativa (`app.json`, plugins) mudar.
+
+4. Nas próximas vezes, basta subir o servidor de desenvolvimento e abrir o app já instalado:
+
+   ```bash
+   bunx expo start --dev-client
+   ```
+
+### Dependências nativas
+
+Instale sempre pelo Expo, para garantir a versão compatível com o SDK:
+
+```bash
+bunx expo install <pacote>
 ```
 
-## What's inside?
+Depois de adicionar uma dependência nativa, gere o development build de novo com `bunx expo run:android`.
 
-This Turborepo includes the following packages/apps:
+## Banco de dados
 
-### Apps and Packages
+O schema fica em `src/db/schema.ts`. Depois de qualquer mudança nele, gere uma migration nova:
 
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `@next/eslint-plugin-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
-
-### Build
-
-To build all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+```bash
+bunx drizzle-kit generate
 ```
 
-Without global `turbo`, use your package manager:
+As migrations são aplicadas automaticamente quando o app abre. Nunca edite uma migration já existente, porque o app pode estar instalado em aparelhos com versões antigas do banco.
 
-```sh
-cd my-turborepo
-npx turbo build
-bun exec turbo build
-bun exec turbo build
+## Qualidade
+
+```bash
+bun run lint        # Biome: formatação e convenções de nomes
+bun run typecheck   # TypeScript
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+Os dois precisam passar antes de abrir um PR. O checklist completo está no [`PATTERNS.md`](./PATTERNS.md).
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
+## Build para a Play Store
 
-```sh
-turbo build --filter=docs
+Os builds de distribuição são feitos com o [EAS Build](https://docs.expo.dev/build/introduction/), que gera o `.aab` exigido pela Play Store:
+
+```bash
+bunx eas-cli build --platform android --profile production
 ```
 
-Without global `turbo`:
+## Documentação do projeto
 
-```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
-```
-
-### Develop
-
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+- [`PATTERNS.md`](./PATTERNS.md): arquitetura, estrutura de pastas e convenções de código.
+- [`CLAUDE.md`](./CLAUDE.md): instruções para o Claude Code trabalhar no projeto.
