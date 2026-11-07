@@ -83,6 +83,16 @@
         "typescript": "^6.0.2",
       },
     },
+    "packages/domain": {
+      "name": "@fluvi/domain",
+      "version": "0.0.1",
+      "devDependencies": {
+        "@repo/typescript-config": "workspace:*",
+        "tsup": "^9.0.0",
+        "typescript": "^6.0.2",
+        "vitest": "^4.1.2",
+      },
+    },
     "packages/typescript-config": {
       "name": "@repo/typescript-config",
       "version": "0.0.0",
@@ -416,6 +426,8 @@
     "@fluvi/api": ["@fluvi/api@workspace:apps/api"],
 
     "@fluvi/contracts": ["@fluvi/contracts@workspace:packages/contracts"],
+
+    "@fluvi/domain": ["@fluvi/domain@workspace:packages/domain"],
 
     "@fluvi/mobile": ["@fluvi/mobile@workspace:apps/mobile"],
 
