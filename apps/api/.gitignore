@@ -1,2 +1,7 @@
 .temp
 .tmp
+
+# Environment files
+!.env.test.example
+.env.test
+.env

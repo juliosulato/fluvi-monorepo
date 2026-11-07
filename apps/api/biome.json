@@ -2,6 +2,9 @@
   "$schema": "https://biomejs.dev/schemas/2.6.6/schema.json",
   "root": false,
   "extends": "//",
+  "files": {
+    "includes": ["**", "!**/*.md", "!src/db/migrations"]
+  },
   "javascript": {
     "parser": {
       "unsafeParameterDecoratorsEnabled": true
@@ -16,11 +19,21 @@
   },
   "overrides": [
     {
-      "includes": ["vitest.config*.ts"],
+      "includes": ["vitest.config*.ts", "drizzle.config.ts"],
       "linter": {
         "rules": {
           "style": {
             "noDefaultExport": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["src/config/env.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "useNamingConvention": "off"
           }
         }
       }
