@@ -318,7 +318,7 @@ Regras que o upsert garante e que nunca podem ser removidas:
 Antes do upsert, o service aplica duas proteções:
 
 - **Relógio adiantado:** `updatedAt` maior que o horário do servidor mais 5 minutos é limitado ao horário do servidor. Rejeitar travaria o sync daquele aparelho para sempre.
-- **Validação de domínio** pelo schema do contrato: `amountMl` entre 1 e 5.000, `weightGrams` entre 20.000 e 400.000, `dailyGoalMl` entre 500 e 10.000, `localDate` válida.
+- **Validação de domínio** pelo schema do contrato, que reutiliza os validadores de `@fluvi/domain`: `isValidSyncWaterMl` (`amountMl`), `isValidSyncWeightGrams` (`weightGrams`), `isValidSyncGoalMl` (`dailyGoalMl`) e `isLocalDate` (`localDate`, `effectiveFrom`). Os limites ficam só no domain; não repita os números no contrato nem na API.
 
 A resposta é `200` com o total recebido. Registros que perderam o conflito não geram erro: a versão mais nova volta ao aparelho no próximo pull.
 

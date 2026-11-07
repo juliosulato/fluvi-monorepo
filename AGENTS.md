@@ -12,11 +12,15 @@ fluvi/
 │   ├── mobile/          # @fluvi/mobile — Expo, SQLite + Drizzle
 │   └── api/             # @fluvi/api — NestJS, PostgreSQL + Drizzle
 └── packages/
-    └── contracts/       # @fluvi/contracts — schemas Zod compartilhados
+    ├── contracts/       # @fluvi/contracts — schemas Zod compartilhados
+    └── domain/          # @fluvi/domain — regras de negócio como funções puras
 ```
 
 - **Bun** gerencia pacotes e workspaces; **Turborepo** orquestra as tarefas.
-- `apps/mobile` e `apps/api` **nunca importam um do outro**. Tudo que os dois precisam concordar mora em `packages/contracts`.
+- `apps/mobile` e `apps/api` **nunca importam um do outro**. O que os dois precisam concordar mora nos pacotes compartilhados:
+  - **formato dos dados trafegados** (schemas Zod): `@fluvi/contracts`;
+  - **regras de negócio, validações e limites**: `@fluvi/domain`.
+- **Direção das dependências:** `@fluvi/contracts` pode depender de `@fluvi/domain`, nunca o contrário. O domain não depende de nenhum pacote.
 
 ## Comandos
 
@@ -36,11 +40,21 @@ Comandos específicos de cada app (development build do Expo, migrations, testes
 
 É o contrato entre app e API. Uma mudança aqui quebra o typecheck dos dois lados, de propósito.
 
-- Contém só **schemas Zod, tipos inferidos e constantes** (incluindo os códigos de erro da API). Nada de lógica e nenhuma dependência de Nest, Drizzle, Expo ou React Native.
+- Contém só **schemas Zod, tipos inferidos e constantes de protocolo** (como os códigos de erro da API). Nada de lógica e nenhuma dependência de Nest, Drizzle, Expo ou React Native. A única dependência interna permitida é `@fluvi/domain`.
+- **Limites e validações não se repetem aqui.** Os schemas do sync reutilizam as constantes e os validadores `isValidSync*` de `@fluvi/domain` (por exemplo, `z.number().refine(isValidSyncWaterMl)`), em vez de escrever os números de novo.
 - É compilado com `tsup`. Depois de mudar o pacote, builde ele antes de rodar o typecheck dos apps.
 - O `src/index.ts` é a entrada pública do pacote e a única exceção à regra de não usar barrel files.
 - **Compatibilidade:** versões antigas do app continuam instaladas nos aparelhos. Mudanças precisam ser aditivas (campo novo opcional no push, campo novo na resposta). Se uma tarefa exigir renomear, remover, mudar o tipo de um campo ou torná-lo obrigatório, **pare e pergunte antes**: isso exige uma rota `/v2` na API.
 - Toda mudança de contrato deve ser refletida nos dois apps na mesma tarefa, ou explicada no resumo final se ficou para depois.
+
+## `packages/domain`
+
+Regras de negócio como funções puras: meta, totais, sequência, período, validações e limites. O app usa offline; a API usa para validar o sync. As regras estão descritas no `README.md` do pacote.
+
+- TypeScript puro, **zero dependências** de runtime e nenhum import de outro pacote do monorepo.
+- Nada de `Date.now()`, `new Date()` sem argumento, `Intl`, I/O ou estado global: "hoje" sempre entra como parâmetro. O pacote roda no Hermes.
+- Há dois níveis de validação: `isValid*` para o que o usuário digita no app, e `isValidSync*`, mais largo, para o que chega pelo sync.
+- Compilado com `tsup`, como o contracts. Testes com Vitest (`bun run test` fixa `TZ=America/Sao_Paulo`).
 
 ## Convenções que valem para tudo
 
