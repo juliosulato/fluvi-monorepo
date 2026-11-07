@@ -1,4 +1,4 @@
-API em NestJS do Fluvi, um app Android de meta de água e registro de peso. O app é **local-first**: ele funciona inteiro sem conta e sem internet, e esta API serve para autenticação com Google, conta e sincronização entre aparelhos.
+API em NestJS do Fluvi, um app Android de meta de água e registro de peso. O app é **local-first**: ele funciona inteiro sem conta e sem internet, e esta API serve para autenticação com Google (Better Auth), conta e sincronização entre aparelhos.
 
 Este diretório faz parte de um monorepo (Bun workspaces + Turborepo):
 
@@ -6,7 +6,7 @@ Este diretório faz parte de um monorepo (Bun workspaces + Turborepo):
 - `apps/api`: esta API
 - `packages/contracts`: schemas Zod compartilhados entre app e API
 
-As regras completas estão em [`PATTERNS.md`](./PATTERNS.md). Leia a seção relevante antes de mexer em banco, sync ou auth.
+As regras completas estão em [`docs/PATTERNS.md`](./docs/PATTERNS.md). Leia a seção relevante antes de mexer em banco, sync ou auth.
 
 ## Comandos
 
@@ -18,9 +18,9 @@ bun run dev                   # API em modo watch
 bun run lint                  # Biome
 bun run typecheck             # TypeScript
 bun run test                  # testes unitários
-bun run test:integration      # testes contra Postgres real (sobe o db-test)
-bunx drizzle-kit generate     # gera migration a partir de src/db/schema/
-bunx drizzle-kit migrate      # aplica migrations no banco local
+bun run test:e2e              # testes HTTP contra o db-test (copie .env.test.example para .env.test)
+bun run db:generate           # gera migration a partir de src/db/schema/
+bun run db:migrate            # aplica migrations no banco local
 ```
 
 Se você mudou `packages/contracts`, builde o pacote antes do typecheck: `bunx turbo build --filter=@fluvi/contracts`.
@@ -29,18 +29,17 @@ Se você mudou `packages/contracts`, builde o pacote antes do typecheck: `bunx t
 
 ### Camadas
 
-- Controller: rota, validação com schema de `@fluvi/contracts`, `@CurrentUser()` e chamada ao service. Sem regra de negócio, sem banco.
+- Controller: rota, validação com schema de `@fluvi/contracts`, `@Session()` e chamada ao service. Sem regra de negócio, sem banco.
 - Service: regras de negócio. Sem objetos HTTP e sem Drizzle.
 - Repository: o único lugar que usa `@InjectDb()` ou importa tabelas.
 - Um módulo não importa o repository de outro; usa o service exportado.
 
 ### Segurança
 
-- O `user_id` vem **sempre** do token (`@CurrentUser()`). Nunca aceite `userId` no corpo ou na query.
-- O `JwtAuthGuard` é global. Só marque uma rota com `@Public()` se ela realmente precisa ser pública, e diga isso no resumo.
-- Nada de `process.env` fora de `src/config/env.ts`.
-- Logs nunca contêm corpo de requisição, ID token, refresh token, email ou valores de água e peso.
-- Refresh token só é guardado como hash.
+- O `user_id` vem **sempre** da sessão (`@Session()`, `session.user.id`). Nunca aceite `userId` no corpo ou na query.
+- O guard do Better Auth (`@thallesp/nestjs-better-auth`) é global. Só marque uma rota com `@AllowAnonymous()` se ela realmente precisa ser pública, e diga isso no resumo.
+- Nada de `process.env` fora de `src/config/env.ts`. Exceções de tooling: `drizzle.config.ts` (lê só `DATABASE_URL`) e `vitest.config.e2e.ts` (lê só o `.env.test`).
+- Logs nunca contêm corpo de requisição, cookie, header `Authorization`, ID token, token de sessão, email ou valores de água e peso.
 
 ### Banco
 
@@ -48,7 +47,8 @@ Se você mudou `packages/contracts`, builde o pacote antes do typecheck: `bunx t
 - IDs de registros de usuário vêm do aparelho. A API nunca gera esses IDs.
 - Medidas em inteiros com a unidade no nome (`amountMl`, `weightGrams`).
 - Toda mudança de schema gera migration nova com `drizzle-kit generate`. **Nunca edite uma migration existente** nem escreva uma à mão.
-- Exclusão de registro de usuário é soft delete. A única exceção é `DELETE /v1/me`, que apaga a conta de verdade.
+- Exclusão de registro de usuário é soft delete. A única exceção é a exclusão de conta (`POST /v1/auth/delete-user`), que apaga tudo de verdade. Toda FK de tabela de domínio para `users` usa `ON DELETE CASCADE`, e o teste e2e da exclusão confirma que não sobra linha do usuário.
+- O schema das tabelas do Better Auth (`src/db/schema/auth.ts`) é gerado pelo CLI dele, com um único ajuste manual (`withTimezone: true` em todo timestamp). Fora isso, não edite à mão.
 
 ### Sync (não altere sem pedir)
 
@@ -71,6 +71,6 @@ Toda mudança em `src/modules/sync/` vem acompanhada de teste em `test/integrati
 
 1. Para tarefas que mexem em mais de um módulo, no schema do banco ou no contrato, apresente um plano curto antes de escrever código.
 2. Siga os nomes e a estrutura do `PATTERNS.md`. Se um caso não estiver coberto, pergunte em vez de criar um padrão novo.
-3. Antes de terminar, rode `bun run lint`, `bun run typecheck` e os testes relevantes (`bun run test:integration` se tocou em sync, auth ou banco). Corrija o que falhar.
+3. Antes de terminar, rode `bun run lint`, `bun run typecheck` e os testes relevantes (`bun run test:e2e` se tocou em auth ou banco). Corrija o que falhar.
 4. **Não faça commit.** Deixe todas as mudanças no working tree para o Julio revisar e commitar. Também não faça push, não crie branch e não rode `drizzle-kit migrate` contra nenhum banco que não seja o local.
 5. Termine com um resumo curto: o que mudou, arquivos tocados, migrations geradas, mudanças no contrato e qualquer decisão que precise de revisão.

@@ -6,7 +6,7 @@ Este documento define a organização do código, as convenções de nomes e os 
 
 O app do Fluvi é **local-first**: a interface lê e grava sempre no SQLite do aparelho. A API não é a fonte da tela. Ela é o ponto de encontro entre os aparelhos e, no futuro, a versão web. Ela faz três coisas:
 
-1. **Autenticação** com Google e emissão de tokens próprios.
+1. **Autenticação** com Google, via Better Auth (sessões no banco).
 2. **Conta**: dados do usuário e exclusão da conta (exigência da Play Store).
 3. **Sincronização**: recebe as mudanças de um aparelho (push) e devolve as mudanças feitas em outros lugares (pull).
 
@@ -70,13 +70,12 @@ O app fica instalado em aparelhos que não atualizam. A API precisa continuar ac
 ## Stack
 
 - **NestJS** com TypeScript em modo strict.
-- **PostgreSQL 17** com **Drizzle ORM** (`drizzle-orm/node-postgres`) e migrations pelo `drizzle-kit`.
+- **PostgreSQL 17** com **Drizzle ORM** (`drizzle-orm/postgres-js`, driver `postgres`) e migrations pelo `drizzle-kit`.
 - **Zod** para validação, integrado ao Nest com `nestjs-zod`. Os schemas vêm de `@fluvi/contracts`.
-- **google-auth-library** para verificar o ID token do Google.
-- **@nestjs/jwt** para o access token.
+- **Better Auth** (`better-auth` + `@better-auth/expo`) para login com Google e sessões, integrado ao Nest com `@thallesp/nestjs-better-auth`.
 - **@nestjs/throttler** para rate limit.
 - **nestjs-pino** para logs estruturados.
-- **Jest** (padrão do Nest) para testes, com Postgres real nos testes de integração.
+- **Vitest** para testes, com Postgres real nos testes e2e e de integração.
 - **Biome** para lint e formatação.
 - **Docker Compose** na VPS, atrás do Nginx.
 
@@ -87,25 +86,27 @@ apps/api/
 ├── src/
 │   ├── main.ts
 │   ├── app.module.ts
+│   ├── create-app.ts           # cria a app Nest (usado pelo main.ts e pelos testes e2e)
 │   ├── config/
 │   │   └── env.ts              # schema Zod das variáveis de ambiente
+│   ├── auth/
+│   │   └── auth.ts             # instância do Better Auth
 │   ├── db/
+│   │   ├── client.ts           # cliente postgres-js e instância do Drizzle
 │   │   ├── db.module.ts        # provider do Drizzle
 │   │   ├── inject-db.ts        # decorator @InjectDb()
 │   │   ├── columns.ts          # colunas comuns de sync
-│   │   ├── schema/             # um arquivo por tabela
+│   │   ├── schema/             # um arquivo por tabela; auth.ts é gerado pelo CLI do Better Auth
 │   │   └── migrations/         # geradas pelo drizzle-kit, nunca editadas à mão
 │   ├── common/
-│   │   ├── guards/             # JwtAuthGuard (global)
-│   │   ├── decorators/         # @CurrentUser(), @Public()
 │   │   ├── filters/            # filtro global de erros
 │   │   └── errors/             # AppError e helpers
 │   └── modules/
-│       ├── auth/
-│       ├── users/
+│       ├── users/              # GET /v1/me
 │       ├── sync/
 │       └── health/
 ├── test/
+│   ├── e2e/                    # testes HTTP contra Postgres real
 │   └── integration/            # testes contra Postgres real
 ├── drizzle.config.ts
 ├── docker-compose.yml          # Postgres de desenvolvimento e de teste
@@ -122,7 +123,7 @@ modules/<modulo>/
 └── <modulo>.repository.ts      # único arquivo que usa o Drizzle
 ```
 
-1. **Controller** recebe a requisição, valida com o schema do contrato, pega o usuário com `@CurrentUser()` e chama o service. Não tem regra de negócio nem acesso ao banco.
+1. **Controller** recebe a requisição, valida com o schema do contrato, pega o usuário com `@Session()` e chama o service. Não tem regra de negócio nem acesso ao banco.
 2. **Service** aplica as regras. Não conhece HTTP (nada de `Request`, `Response` ou status code) e não usa o Drizzle.
 3. **Repository** é o único que importa o `db` e as tabelas. Recebe e devolve tipos de domínio.
 
@@ -139,7 +140,7 @@ Para uma API deste tamanho não existem classes de use case. Se um service cresc
 | O quê | Convenção | Exemplo |
 |---|---|---|
 | Arquivos e pastas | kebab-case com sufixo do Nest | `sync.controller.ts`, `water-logs.ts` |
-| Classes | PascalCase com sufixo | `SyncService`, `JwtAuthGuard` |
+| Classes | PascalCase com sufixo | `SyncService`, `HealthController` |
 | Funções e variáveis | camelCase | `applyPush`, `nextCursor` |
 | Booleanos | prefixo `is`, `has`, `can`, `should` | `hasMore`, `isRevoked` |
 | Tipos e interfaces | PascalCase, sem prefixo `I` | `WaterLogRecord` |
@@ -167,18 +168,26 @@ Todo número que representa uma medida carrega a unidade no nome: `amountMl`, `w
 
 | Tabela | O que guarda |
 |---|---|
-| `users` | id, `google_sub` (único), email, nome, timestamps |
-| `refresh_tokens` | hash do token, `user_id`, `family_id`, nome do aparelho, `expires_at`, `revoked_at` |
+| `users` | usuário do Better Auth: id (UUID), nome, email, imagem, timestamps |
+| `sessions` | sessões do Better Auth (uma por aparelho), com `token`, `expires_at` e `user_id` |
+| `accounts` | vínculo com o Google (`provider_id`, `account_id` = `sub` do Google) |
+| `verifications` | tokens temporários do Better Auth |
 | `water_logs` | registros de água |
 | `weight_entries` | registros de peso |
 | `goals` | metas diárias com vigência (`daily_goal_ml`, `effective_from`) |
 
-As três últimas são **tabelas sincronizáveis** e seguem as regras abaixo.
+`users`, `sessions`, `accounts` e `verifications` são do Better Auth: o schema delas (`src/db/schema/auth.ts`) é gerado pelo CLI (`bunx auth@<versão> generate`). O arquivo tem **um único ajuste manual** em relação ao que o CLI gera: todo `timestamp` usa `{ withTimezone: true }` (`timestamptz`), igual ao resto do schema. Ao regenerar, reaplique esse ajuste e gere uma migration nova. Fora isso, não edite o arquivo à mão. `water_logs`, `weight_entries` e `goals` são **tabelas sincronizáveis** e seguem as regras abaixo.
+
+### Exclusão em cascata
+
+**Toda FK de uma tabela de domínio para `users` usa `ON DELETE CASCADE`.** É o único mecanismo que apaga os dados do usuário na exclusão de conta: não existe service que apague tabela por tabela. Assim a exclusão é atômica (um `DELETE` em `users`) e uma tabela nova não fica esquecida.
+
+A exclusão de conta tem um teste e2e (`test/e2e/auth.e2e-spec.ts`) que percorre todas as tabelas com FK para `users` e confirma que não sobrou nenhuma linha do usuário. Toda tabela nova com FK para `users` entra nesse teste automaticamente; se ela precisar de dados de exemplo para o teste ter valor, crie-os no teste.
 
 ### Regras das tabelas sincronizáveis
 
 1. **ID em UUID vindo do aparelho.** A API nunca gera o ID de um registro de usuário; ele nasce offline no app.
-2. **`user_id` obrigatório**, com `ON DELETE CASCADE` para `users`. O `user_id` vem sempre do token, nunca do payload.
+2. **`user_id` obrigatório**, com `ON DELETE CASCADE` para `users`. O `user_id` vem sempre da sessão, nunca do payload.
 3. **Colunas de sync:** `created_at`, `updated_at`, `deleted_at` (todas `timestamptz`) e `server_version` (`bigint`). Vêm de `src/db/columns.ts`.
 4. **Soft delete.** Registro apagado continua no banco com `deleted_at` preenchido, para o pull avisar os outros aparelhos. Tombstones não são expurgados.
 5. **Medidas em inteiros** (`integer`), nunca `numeric` ou float.
@@ -332,33 +341,39 @@ A API depende destas regras do lado do app, documentadas aqui porque são parte 
 
 ## Autenticação
 
-O MVP só tem login com Google.
+O MVP só tem login com Google, feito pelo **Better Auth** (`src/auth/auth.ts`).
 
-### `POST /v1/auth/google`
+### Configuração do Better Auth
 
-1. O app faz o login com Google no aparelho e envia o ID token.
-2. A API verifica o token com `google-auth-library`, conferindo assinatura, expiração e `aud` igual a um dos client IDs em `GOOGLE_CLIENT_IDS`.
-3. A API faz upsert do usuário pelo `sub` do Google (o email pode mudar; o `sub`, não).
-4. A API devolve um access token e um refresh token.
+- `basePath: '/v1/auth'`. As rotas do Better Auth não passam pelo prefixo global do Nest; o `basePath` já inclui o `/v1`.
+- Adapter Drizzle com `provider: 'pg'` e `usePlural: true` (tabelas no plural; `user` é palavra reservada no Postgres).
+- `advanced.database.generateId: 'uuid'`: ids em UUID, iguais ao resto do schema.
+- Só o provider `google`. Email e senha ficam desligados.
+- Plugin `expo()` e o `APP_SCHEME` em `trustedOrigins` (mais `exp://` só em development).
+- `session.expiresIn` de 60 dias e `session.updateAge` de 1 dia: o app pode ficar dias fechado, e cada uso depois de 1 dia renova a validade.
+- `account.encryptOAuthTokens: true`: access e refresh tokens do Google são cifrados com o `BETTER_AUTH_SECRET`. O `id_token` do Google e o token de sessão continuam em texto no banco (limitação do Better Auth).
+- `user.deleteUser.enabled: true`.
 
-### Tokens
+### Login: `POST /v1/auth/sign-in/social`
 
-- **Access token:** JWT assinado pela API, com `sub` igual ao id do usuário e validade de 15 minutos. Não carrega mais nada.
-- **Refresh token:** valor opaco aleatório (32 bytes), validade de 60 dias. No banco fica só o **hash SHA-256**, nunca o valor.
-- **Rotação:** `POST /v1/auth/refresh` revoga o token usado e emite um novo na mesma família (`family_id`).
-- **Detecção de reuso:** se um token já revogado for usado, a família inteira é revogada e o usuário precisa entrar de novo.
-- `POST /v1/auth/logout` revoga a família do token informado.
+1. O app faz o login nativo com Google no aparelho e envia `{ provider: 'google', idToken: { token } }`.
+2. O Better Auth verifica o ID token (assinatura, expiração e `aud` igual a `GOOGLE_CLIENT_ID`, o Web client ID).
+3. O usuário é criado ou encontrado pela conta Google (`accounts.account_id` = `sub`).
+4. Uma sessão nova é criada e o token volta para o app, que o guarda com o `@better-auth/expo`.
 
 ### Guard global
 
-- O `JwtAuthGuard` é registrado globalmente. Toda rota exige autenticação por padrão.
-- Rotas públicas (`/auth/google`, `/auth/refresh`, `/health`) são marcadas explicitamente com `@Public()`.
-- O usuário atual chega ao controller por `@CurrentUser()`, que devolve só o `userId`.
+- O `AuthModule.forRoot({ auth })` de `@thallesp/nestjs-better-auth` registra um guard global. Toda rota exige sessão por padrão.
+- Rotas públicas são marcadas explicitamente com `@AllowAnonymous()`. Hoje só `/v1/health`.
+- A sessão chega ao controller por `@Session() session: UserSession`. O `user_id` é sempre `session.user.id`.
+- O Nest sobe com `bodyParser: false` (exigido pelo Better Auth). O parser de JSON das outras rotas é configurado em `AuthModule.forRoot({ bodyParser })`.
 
 ## Conta
 
-- `GET /v1/me` devolve os dados básicos do usuário.
-- `DELETE /v1/me` apaga o usuário de verdade (hard delete). O `ON DELETE CASCADE` leva junto refresh tokens e todos os registros. Exclusão de conta não é soft delete: a Play Store exige que os dados sejam removidos.
+- `GET /v1/me` devolve `id`, `name`, `email` e `image` do usuário da sessão (`meResponseSchema` de `@fluvi/contracts`).
+- A exclusão da conta é o endpoint do Better Auth `POST /v1/auth/delete-user`. É hard delete: a Play Store exige que os dados sejam removidos.
+  - Sem senha, o Better Auth exige uma sessão **fresca** (`session.freshAge`, 1 dia). O app refaz o login com Google antes de excluir.
+  - O Better Auth apaga sessões, contas e o usuário. O `ON DELETE CASCADE` de toda FK para `users` leva junto todos os dados de domínio (ver "Exclusão em cascata"). Os outros aparelhos perdem o acesso.
 - A Play Store também exige um caminho de exclusão fora do app, por um link web. Esse fluxo usa o mesmo endpoint.
 
 ## Erros
@@ -377,15 +392,16 @@ O MVP só tem login com Google.
 ## Configuração
 
 - Variáveis de ambiente são validadas por um schema Zod em `src/config/env.ts` na subida. Se faltar uma, a API não sobe.
-- Nenhum código lê `process.env` fora de `env.ts`.
-- Variáveis: `NODE_ENV`, `PORT`, `DATABASE_URL`, `JWT_ACCESS_SECRET`, `GOOGLE_CLIENT_IDS` (lista separada por vírgula), `CORS_ORIGINS`.
+- Nenhum código lê `process.env` fora de `env.ts`. Exceções de tooling: `drizzle.config.ts` lê só `DATABASE_URL`, para o `drizzle-kit` não exigir os segredos; `vitest.config.e2e.ts` lê só o `.env.test` e recusa rodar se o `DATABASE_URL` não for o `fluvi_test` na porta 5433.
+- O `.env` só é lido em development (`NODE_ENV=development`, definido pelos scripts `dev` e `db:*`). Os testes e2e leem o `.env.test` pelo Vitest, e o deploy passa tudo pelo ambiente.
+- Variáveis: `NODE_ENV`, `PORT`, `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `APP_SCHEME`. O `.env.example` documenta cada uma.
 
 ## Segurança e privacidade
 
 - **Rate limit** global com `@nestjs/throttler` e limite mais apertado nas rotas de `/auth`.
-- **Logs não carregam dados do usuário.** Nada de corpo de requisição, ID token, refresh token, email ou valores de peso e água. Peso é dado de saúde. Logue ids, rotas, status e duração.
+- **Logs não carregam dados do usuário.** Nada de corpo de requisição, cookie, header `Authorization`, ID token, token de sessão, email ou valores de peso e água. Peso é dado de saúde. Logue ids, rotas, status e duração.
 - O tamanho máximo do corpo da requisição é limitado no Nest e no Nginx.
-- CORS fechado para as origens de `CORS_ORIGINS` (vazio até existir a versão web).
+- CORS liberado só para os `trustedOrigins` do Better Auth (o `AuthModule` de `@thallesp/nestjs-better-auth` habilita, com `credentials`). A versão web entra adicionando a origem dela lá.
 
 ## Testes
 
@@ -396,7 +412,7 @@ O MVP só tem login com Google.
   - tombstones chegando no pull;
   - paginação do pull com várias entidades e `hasMore`;
   - limitação de `updatedAt` adiantado.
-- **Auth** tem testes de integração para rotação e detecção de reuso do refresh token. A verificação do Google é substituída por um fake nos testes.
+- **Auth** tem testes e2e (`test/e2e/`) contra Postgres real. Usuário e sessão de teste vêm do plugin `testUtils` do Better Auth, numa instância só de teste (`test/e2e/test-auth.ts`) que nunca entra na config da app. O login real com Google é testado manualmente com o app.
 - Services com regra de negócio isolada têm testes unitários. Controllers e repositories simples não precisam de teste unitário.
 
 ## Deploy
@@ -406,6 +422,14 @@ O MVP só tem login com Google.
 - Ordem do deploy: build da imagem, `drizzle-kit migrate`, troca do container da API.
 - `GET /v1/health` checa a conexão com o banco e é usado pelo healthcheck do Compose.
 
+## Pendências de deploy
+
+Ficam para a tarefa de deploy:
+
+- **IP do cliente atrás do Nginx:** configurar `advanced.ipAddress` (`ipAddressHeaders` ou `trustedProxies`) no Better Auth. Sem isso, o rate limit dele junta todos os clientes num único balde por rota.
+- **Limite de body nas rotas de auth:** o limite de 1mb do `AuthModule.forRoot({ bodyParser })` não vale para `/v1/auth/*`, que o Better Auth lê cru. Limitar no Nginx (`client_max_body_size`).
+- **Log das rotas `/v1/auth/*`:** o handler do Better Auth é montado antes dos middlewares do Nest, então o `pino-http` não loga essas rotas. Decidir como logar sem vazar tokens (query string e header `Location` incluídos).
+
 ## Validação automática
 
 Verificado pelo Biome no `bun run lint`:
@@ -414,7 +438,7 @@ Verificado pelo Biome no `bun run lint`:
 - `useNamingConvention`: convenções de nomes.
 - `noDefaultExport`: proibido em todo o código da API.
 
-As regras que o lint não verifica (camadas, Drizzle só em repository, `user_id` vindo do token, regras do upsert, logs sem dados do usuário) são responsabilidade do code review e estão resumidas no `CLAUDE.md`.
+As regras que o lint não verifica (camadas, Drizzle só em repository, `user_id` vindo da sessão, regras do upsert, logs sem dados do usuário) são responsabilidade do code review e estão resumidas no `CLAUDE.md`.
 
 ## Decisões em aberto
 
@@ -426,8 +450,8 @@ As regras que o lint não verifica (camadas, Drizzle só em repository, `user_id
 
 - [ ] Controller sem regra de negócio e sem acesso ao banco.
 - [ ] Drizzle usado só em `*.repository.ts`.
-- [ ] Nenhuma rota nova sem autenticação, a não ser que esteja marcada com `@Public()` de propósito.
-- [ ] `user_id` sempre vindo do token, nunca do corpo ou da query.
+- [ ] Nenhuma rota nova sem autenticação, a não ser que esteja marcada com `@AllowAnonymous()` de propósito.
+- [ ] `user_id` sempre vindo da sessão, nunca do corpo ou da query.
 - [ ] Tabelas sincronizáveis novas com UUID do cliente, colunas de sync, índice `(user_id, server_version)` e entrada no registry.
 - [ ] Mudança de contrato feita em `@fluvi/contracts` e compatível com versões antigas do app (ou em `/v2`).
 - [ ] Mudança de schema veio com migration nova gerada pelo `drizzle-kit`.
