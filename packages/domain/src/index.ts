@@ -1,4 +1,5 @@
 export {
+  ACTIVITY_LEVELS,
   type ActivityLevel,
   GOAL_MAX_ML,
   GOAL_MIN_ML,
@@ -6,6 +7,7 @@ export {
   type GoalHistoryEntry,
   goalForDate,
   HIGH_ACTIVITY_BONUS_ML,
+  isActivityLevel,
   isValidGoalMl,
   isValidSyncGoalMl,
   SYNC_GOAL_MAX_ML,
@@ -31,12 +33,14 @@ export {
 export type { DeletedAt, Timestamp } from './sync-record.js';
 export {
   dailyTotals,
+  isValidSyncQuickAmountsMl,
   isValidSyncWaterMl,
   isValidWaterMl,
-  SYNC_WATER_ENTRY_MAX_ML,
-  WATER_ENTRY_MAX_ML,
-  WATER_ENTRY_MIN_ML,
-  type WaterEntry,
+  QUICK_AMOUNT_COUNT,
+  SYNC_WATER_LOG_MAX_ML,
+  WATER_LOG_MAX_ML,
+  WATER_LOG_MIN_ML,
+  type WaterLog,
 } from './water.js';
 export {
   hasWeightForDate,

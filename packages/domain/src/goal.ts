@@ -25,7 +25,18 @@ const ML_PER_KG = 35;
 /** Provisional value: kept in a single exported constant so it is easy to tune. */
 export const HIGH_ACTIVITY_BONUS_ML = 1000;
 
-export type ActivityLevel = 'none' | 'moderate' | 'high';
+export const ACTIVITY_LEVELS = ['none', 'moderate', 'high'] as const;
+
+export type ActivityLevel = (typeof ACTIVITY_LEVELS)[number];
+
+/**
+ * True if `value` is a known activity level. Use it at the app's boundaries
+ * (reading SQLite, applying a pull): a level added in a later release is
+ * unknown to an older app.
+ */
+export function isActivityLevel(value: unknown): value is ActivityLevel {
+  return (ACTIVITY_LEVELS as readonly unknown[]).includes(value);
+}
 
 const ACTIVITY_BONUS_ML: Record<ActivityLevel, number> = {
   none: 0,
@@ -47,9 +58,7 @@ export function suggestGoalMl(
   weightGrams: number,
   activity: ActivityLevel,
 ): number {
-  // Not `Object.hasOwn`: the package avoids ES2022 runtime APIs (Hermes).
-  // `noPrototypeBuiltins` is off in this package so Biome does not rewrite it.
-  if (!Object.prototype.hasOwnProperty.call(ACTIVITY_BONUS_ML, activity)) {
+  if (!isActivityLevel(activity)) {
     throw new RangeError(`Unknown activity level: ${activity}`);
   }
   const milliMl = weightGrams * ML_PER_KG + ACTIVITY_BONUS_ML[activity] * 1000;

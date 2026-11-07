@@ -44,6 +44,8 @@ Se você mudou `packages/contracts`, builde o pacote antes do typecheck: `bunx t
 ### Banco
 
 - Toda tabela sincronizável usa `syncColumns` de `src/db/columns.ts`, tem índice `(user_id, server_version)` e entra em `src/modules/sync/sync-registry.ts`.
+  - **Exceção:** `user_settings` usa `syncVersionColumns` (sem `id` do aparelho, sem `deleted_at` e sem índice `(user_id, server_version)`), porque é uma linha por usuário e a PK é o próprio `user_id`. Detalhes em "Registro único por usuário" no PATTERNS.
+- `src/db/columns.ts` e `src/db/schema/` usam imports relativos, não `@/`, porque o `drizzle-kit` não resolve o alias do tsconfig ao carregar o schema.
 - IDs de registros de usuário vêm do aparelho. A API nunca gera esses IDs.
 - Medidas em inteiros com a unidade no nome (`amountMl`, `weightGrams`).
 - Toda mudança de schema gera migration nova com `drizzle-kit generate`. **Nunca edite uma migration existente** nem escreva uma à mão.

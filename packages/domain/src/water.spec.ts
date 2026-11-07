@@ -2,9 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { parseLocalDate as d } from './local-date.js';
 import {
   dailyTotals,
+  isValidSyncQuickAmountsMl,
   isValidSyncWaterMl,
   isValidWaterMl,
-  type WaterEntry,
+  type WaterLog,
 } from './water.js';
 
 describe('isValidWaterMl', () => {
@@ -34,9 +35,23 @@ describe('isValidSyncWaterMl', () => {
   });
 });
 
+describe('isValidSyncQuickAmountsMl', () => {
+  it.each<[number[], boolean]>([
+    [[150, 250, 500], true],
+    [[1, 5000, 5000], true],
+    [[150, 250], false],
+    [[150, 250, 500, 750], false],
+    [[150, 250, 5001], false],
+    [[150, 0, 500], false],
+    [[150, 250.5, 500], false],
+  ])('%j → %s', (values, expected) => {
+    expect(isValidSyncQuickAmountsMl(values)).toBe(expected);
+  });
+});
+
 describe('dailyTotals', () => {
   it('treats a missing deletedAt as active', () => {
-    const entries: WaterEntry[] = [
+    const entries: WaterLog[] = [
       { amountMl: 250, localDate: '2024-01-01' },
       { amountMl: 250, localDate: '2024-01-01', deletedAt: undefined },
     ];
@@ -44,7 +59,7 @@ describe('dailyTotals', () => {
   });
 
   it('sums per day and ignores deleted entries of any shape', () => {
-    const entries: WaterEntry[] = [
+    const entries: WaterLog[] = [
       { amountMl: 250, localDate: d('2024-12-31'), deletedAt: null },
       { amountMl: 500, localDate: d('2024-12-31'), deletedAt: null },
       { amountMl: 999, localDate: d('2024-12-31'), deletedAt: 1_700_000_000 },

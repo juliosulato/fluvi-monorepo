@@ -126,7 +126,7 @@ Todo número que representa uma medida carrega a unidade no nome: `amountMl`, `w
 
 Estas regras existem para que o sync com a API funcione sem retrabalho. Toda tabela de dados do usuário segue todas elas.
 
-1. **ID em UUID gerado no aparelho** (`expo-crypto`), nunca autoincremento. O registro nasce offline e precisa ter o mesmo ID no servidor.
+1. **ID em UUID gerado no aparelho** (`expo-crypto`), nunca autoincremento. O registro nasce offline e precisa ter o mesmo ID no servidor. O UUID é **sempre minúsculo** (`randomUUID()` já gera assim; nunca transforme a caixa). A API rejeita UUID com maiúsculas (`MALFORMED_RECORD`), porque o Postgres o devolveria minúsculo no pull e o SQLite, que compara texto com diferença de caixa, criaria uma duplicata.
 2. **Colunas de sync obrigatórias:** `createdAt`, `updatedAt`, `deletedAt` e `syncedAt`, vindas de `src/db/columns.ts`.
 3. **Soft delete.** Apagar é preencher `deletedAt` e atualizar `updatedAt`. Uma linha removida de verdade nunca chegaria ao servidor. Toda query de leitura filtra `deletedAt IS NULL`.
 4. **Medidas em inteiros.** Água em ml, peso em gramas. Nada de float no banco; a conversão para "72,4 kg" acontece só na formatação.
@@ -163,7 +163,19 @@ export const waterLogs = sqliteTable(
 
 ### Meta diária fica no banco
 
-A meta muda com o tempo, e os gráficos precisam saber qual era a meta de cada dia. Por isso ela é uma tabela com vigência (`goals`, com `dailyGoalMl` e `effectiveFrom` em `localDate`), sincronizada como qualquer outro dado. Mudar a meta cria um registro novo, nunca altera o histórico.
+A meta muda com o tempo, e os gráficos precisam saber qual era a meta de cada dia. Por isso ela é uma tabela com vigência (`goals`, com `dailyGoalMl` e `effectiveFrom` em `localDate`), sincronizada como qualquer outro dado.
+
+- **Uma meta por dia.** Mudar a meta num dia que ainda não tem meta cria um registro novo com `effectiveFrom` igual a hoje. Mudar a meta num dia que já tem meta **atualiza o registro daquele dia** (`dailyGoalMl` e `updatedAt`), sem criar outro. Os dias anteriores nunca mudam.
+- **Peso segue a mesma regra:** registrar peso num dia que já tem peso atualiza o registro do dia.
+- A API garante isso com um índice único parcial (um registro ativo por dia). Se dois aparelhos offline criarem registros para o mesmo dia, o sync resolve: vale o `updatedAt` mais recente, e o outro volta do pull como excluído. As regras de cálculo (`goalForDate`, `weightChange` em `@fluvi/domain`) ainda toleram duplicatas como defesa.
+
+### Configurações sincronizadas (`user_settings`)
+
+As preferências que precisam existir em outro aparelho ficam na tabela `user_settings` do SQLite e são sincronizadas: nível de atividade (`activityLevel`), **copos rápidos** (`quickAmountsMl`, sempre 3 valores) e o registro de peso com seu consentimento (`weightTrackingEnabled`, `weightConsentAt`, `weightConsentPolicyVersion`, `weightConsentUpdatedAt`).
+
+- É uma **linha única**: sem `id` e sem `deletedAt` (o servidor identifica pelo usuário da sessão). Tem `createdAt`, `updatedAt` e `syncedAt`, como as outras tabelas. É a exceção às regras 1 e 3 acima.
+- **Consentimento é um grupo à parte.** Ligar ou desligar o registro de peso é a mesma ação que dar ou revogar o consentimento: toda escrita em `weightTrackingEnabled`, `weightConsentAt` ou `weightConsentPolicyVersion` atualiza os três juntos e preenche `weightConsentUpdatedAt`. O merge desse grupo usa `weightConsentUpdatedAt`, não o `updatedAt` da linha, para que um aparelho desatualizado nunca reative um consentimento revogado. O resto da linha segue last-write-wins pelo `updatedAt`.
+- **Nível de atividade na fronteira.** Uma versão futura pode trazer um nível novo. Ao ler do SQLite e ao aplicar o pull, valide com `isActivityLevel` (`@fluvi/domain`). Se o nível for desconhecido, guarde o valor como veio e **mantenha a meta atual sem recalcular**: nunca chame `suggestGoalMl` com ele, porque ela lança `RangeError`.
 
 ### Cliente e migrations
 
@@ -254,8 +266,10 @@ Os tipos das features derivam do schema (`typeof waterLogs.$inferSelect`) em `ty
 
 O motor de sync vive em `src/sync/` e é o único código que envia ou recebe dados de água, peso e metas pela rede.
 
-- **Push:** envia em lote, via `POST /sync/push`, todo registro com `syncedAt` nulo ou menor que `updatedAt`. Ao confirmar, preenche `syncedAt`.
-- **Pull:** pede `GET /sync/pull?since=<cursor>`. O cursor é devolvido pelo servidor e guardado no MMKV. Nunca use o relógio do aparelho como cursor.
+- **Push:** envia em lote, via `POST /v1/sync/push`, todo registro com `syncedAt` nulo ou menor que `updatedAt`. Ao confirmar, preenche `syncedAt` com o `updatedAt` que foi enviado. A resposta traz um resultado por registro (`applied`, `ignored` ou `rejected`) e **não traz cursor**.
+- **Pull:** pede `GET /v1/sync/pull?since=<cursor>`, repetindo enquanto `hasMore`. O cursor (`nextCursor`) é devolvido pelo servidor e guardado no MMKV. Nunca use o relógio do aparelho como cursor. A resposta do pull é validada com os schemas lenientes de `@fluvi/contracts` (só estrutura e tipos): valores fora das faixas ou enums atuais chegam como vieram, e o app os tolera (veja `isActivityLevel` em "Configurações sincronizadas").
+- **Ordem:** push primeiro, depois pull a partir do cursor que o app já tinha.
+- **Primeiro login:** é a exceção à ordem. O app faz **pull antes do push**. Os registros de água, peso e metas criados sem conta sobem normalmente no push seguinte. As configurações locais (`user_settings`) criadas antes do login só sobem se a conta ainda não tiver configurações (o pull trouxe `userSettings: null`); se tiver, as do servidor substituem as locais.
 - **Conflito:** last-write-wins pelo `updatedAt`. Um registro recebido só sobrescreve o local se for mais novo.
 - **Idempotência:** os endpoints aceitam o mesmo lote mais de uma vez sem duplicar nada, porque os IDs são UUIDs do cliente.
 - **Gatilhos:** app volta ao primeiro plano, conexão volta, e um debounce de alguns segundos depois de qualquer mudança no banco (via listener de mudanças do expo-sqlite).
@@ -288,10 +302,10 @@ Existe uma única instância do axios, em `src/lib/api-client.ts`, usada pelo mo
 ## Estado do cliente (Zustand)
 
 - **Sessão** (`session-store.ts`): tokens persistidos no SecureStore, pelo wrapper de `src/lib/secure-storage.ts`.
-- **Preferências locais** (`settings-store.ts`): onboarding concluído, tema, tamanhos de copo do atalho rápido, configuração de lembretes. Persistidas no MMKV pelo wrapper de `src/lib/kv-storage.ts`.
+- **Preferências locais** (`settings-store.ts`): onboarding concluído, tema, configuração de lembretes. Persistidas no MMKV pelo wrapper de `src/lib/kv-storage.ts`. Os copos rápidos não ficam aqui: fazem parte do `user_settings` sincronizado (veja "Configurações sincronizadas").
 - Histórico e meta nunca ficam em store. Se o dado precisa existir na versão web ou em outro aparelho, ele mora no banco e é sincronizado.
 - Estado local de tela fica em `useState` no próprio componente.
-- Nos componentes, selecione só o que precisa: `useSettingsStore((state) => state.cupSizesMl)`.
+- Nos componentes, selecione só o que precisa: `useSettingsStore((state) => state.theme)`.
 
 ## Formulários e validação
 
@@ -364,7 +378,6 @@ As regras que o lint não consegue verificar (fronteira entre features, `db` usa
 
 ## Decisões em aberto
 
-- **Conta obrigatória ou opcional.** Se o uso sem conta for permitido, é preciso definir como os registros locais são associados à conta no primeiro login.
 - **Biblioteca de gráficos.**
 
 ## Checklist antes de abrir um PR

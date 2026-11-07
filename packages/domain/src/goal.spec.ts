@@ -4,6 +4,7 @@ import {
   type GoalHistoryEntry,
   goalForDate,
   HIGH_ACTIVITY_BONUS_ML,
+  isActivityLevel,
   isValidGoalMl,
   isValidSyncGoalMl,
   shouldSuggestGoalUpdate,
@@ -32,10 +33,32 @@ describe('suggestGoalMl', () => {
     expect(suggestGoalMl(grams, activity)).toBe(expected);
   });
 
-  it('throws on an unknown activity instead of returning NaN', () => {
-    expect(() => suggestGoalMl(70_000, 'low' as ActivityLevel)).toThrow(
-      RangeError,
-    );
+  it.each(['low', 'toString', 'constructor'])(
+    'throws on unknown activity %j instead of returning NaN',
+    (activity) => {
+      expect(() => suggestGoalMl(70_000, activity as ActivityLevel)).toThrow(
+        RangeError,
+      );
+    },
+  );
+});
+
+describe('isActivityLevel', () => {
+  it.each<[unknown, boolean]>([
+    ['none', true],
+    ['moderate', true],
+    ['high', true],
+    ['low', false],
+    ['extreme', false],
+    ['HIGH', false],
+    ['', false],
+    ['toString', false],
+    ['constructor', false],
+    [null, false],
+    [undefined, false],
+    [1, false],
+  ])('%j → %s', (value, expected) => {
+    expect(isActivityLevel(value)).toBe(expected);
   });
 });
 

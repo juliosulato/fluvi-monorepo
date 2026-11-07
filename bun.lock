@@ -15,6 +15,7 @@
       "dependencies": {
         "@better-auth/expo": "^1.7.18",
         "@fluvi/contracts": "workspace:*",
+        "@fluvi/domain": "workspace:*",
         "@nestjs/common": "^12.0.1",
         "@nestjs/core": "^12.0.1",
         "@nestjs/platform-express": "^12.0.1",
@@ -75,12 +76,14 @@
       "name": "@fluvi/contracts",
       "version": "0.0.1",
       "dependencies": {
+        "@fluvi/domain": "workspace:*",
         "zod": "^4.6.7",
       },
       "devDependencies": {
         "@repo/typescript-config": "workspace:*",
         "tsup": "^9.0.0",
         "typescript": "^6.0.2",
+        "vitest": "^4.1.2",
       },
     },
     "packages/domain": {

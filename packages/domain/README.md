@@ -14,6 +14,7 @@ Nenhuma função lê o relógio, faz I/O ou guarda estado: "hoje" sempre entra c
 
 ## Meta
 
+- **Nível de atividade:** `none`, `moderate` ou `high` (`ACTIVITY_LEVELS`). `isActivityLevel(value)` diz se um valor é um nível conhecido: o app usa nas fronteiras (leitura do SQLite e do pull), porque uma versão futura pode trazer um nível novo. `suggestGoalMl` lança `RangeError` para nível desconhecido.
 - **Sugestão:** peso em kg × 35 + bônus de atividade (nenhuma: 0, moderada: 500, alta: 1000). O resultado é arredondado para o múltiplo de 50 mais próximo (o meio arredonda para cima) e limitado entre 1000 e 6000 ml. Exemplo: 70 kg com atividade moderada = 2950 ml.
 - O bônus de atividade alta é provisório e fica em `HIGH_ACTIVITY_BONUS_ML`.
 - **Meta válida no app:** inteiro entre 1000 e 6000, múltiplo de 50.
@@ -27,6 +28,7 @@ Nenhuma função lê o relógio, faz I/O ou guarda estado: "hoje" sempre entra c
 
 - Um registro feito no app vale de 1 a 3000 ml, inteiro. No sync, o limite é 5000 ml.
 - O total do dia é a soma dos registros não excluídos daquele dia.
+- **Copos rápidos:** o usuário guarda exatamente 3 valores (`QUICK_AMOUNT_COUNT`). No sync, cada um segue o limite de um registro de água no sync (1 a 5000 ml, inteiro).
 
 ## Peso
 

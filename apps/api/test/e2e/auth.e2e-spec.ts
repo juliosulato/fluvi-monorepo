@@ -1,9 +1,14 @@
 import type { INestApplication } from '@nestjs/common';
-import { eq } from 'drizzle-orm';
+import { eq, getTableName } from 'drizzle-orm';
 import request from 'supertest';
 import { createApp } from '@/create-app.js';
 import { db, sqlClient } from '@/db/client.js';
 import { users } from '@/db/schema/auth.js';
+import { goals } from '@/db/schema/goals.js';
+import { userSettings } from '@/db/schema/user-settings.js';
+import { waterLogs } from '@/db/schema/water-logs.js';
+import { weightEntries } from '@/db/schema/weight-entries.js';
+import { insertSyncRow } from './sync-rows.js';
 import { testAuth } from './test-auth.js';
 
 const APP_ORIGIN = 'fluvi://';
@@ -96,9 +101,20 @@ describe('auth (e2e)', () => {
       providerId: 'google',
       accountId: `google-sub-${user.id}`,
     });
+    await insertSyncRow.waterLog(user.id);
+    await insertSyncRow.weightEntry(user.id);
+    await insertSyncRow.goal(user.id);
+    await insertSyncRow.userSettings(user.id);
 
     const before = await countRowsReferencingUser(user.id);
-    expect(before).toMatchObject({ sessions: 2, accounts: 1 });
+    expect(before).toEqual({
+      sessions: 2,
+      accounts: 1,
+      [getTableName(waterLogs)]: 1,
+      [getTableName(weightEntries)]: 1,
+      [getTableName(goals)]: 1,
+      [getTableName(userSettings)]: 1,
+    });
 
     await request(app.getHttpServer())
       .post('/v1/auth/delete-user')

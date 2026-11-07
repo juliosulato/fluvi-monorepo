@@ -62,8 +62,8 @@ Regras de negócio como funções puras: meta, totais, sequência, período, val
 - O mesmo campo tem **o mesmo nome** no app, no contrato e na API (`amountMl`, `weightGrams`, `localDate`).
 - **Medidas em inteiros, com a unidade no nome:** água em ml, peso em gramas. Nunca `amount` ou `weight` soltos, nunca float no banco.
 - **Timestamps** viajam como milissegundos desde a época. **Datas locais** viajam como `YYYY-MM-DD`.
-- Registros de usuário têm **UUID gerado no aparelho**, colunas de sync e **soft delete**. Os detalhes estão no `PATTERNS.md` de cada app.
-- Arquivos em kebab-case, export nomeado, imports com alias `@/` dentro de cada app.
+- Registros de usuário têm **UUID gerado no aparelho**, colunas de sync e **soft delete**. Os detalhes estão no `PATTERNS.md` de cada app. Exceção: `user_settings` é uma linha única por usuário, com o `user_id` como chave primária, por isso não tem UUID do aparelho nem soft delete.
+- Arquivos em kebab-case, export nomeado, imports com alias `@/` dentro de cada app. Exceção: o schema do banco da API (`apps/api/src/db/schema/` e `columns.ts`) usa imports relativos, porque o `drizzle-kit` não resolve `@/`.
 - **Biome** para lint e formatação em todos os pacotes.
 
 ## Como trabalhar

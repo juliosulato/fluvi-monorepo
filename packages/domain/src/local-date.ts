@@ -8,7 +8,7 @@ declare const localDateBrand: unique symbol;
  * with the plain string operators (`<`, `<=`, `===`).
  *
  * The brand marks values that went through `parseLocalDate`,
- * `localDateFromDate` or `addDays`. Record types (`WaterEntry`, ...) take a
+ * `localDateFromDate` or `addDays`. Record types (`WaterLog`, ...) take a
  * plain `string`, so rows read from the database can be passed as they are.
  * Validating dates when they are written (with `isLocalDate`) is the caller's
  * job; they are not re-validated on every read.
